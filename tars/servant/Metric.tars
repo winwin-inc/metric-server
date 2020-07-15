@@ -1,0 +1,59 @@
+module winwin
+{
+    enum TimeAggregation {
+        NONE,
+        WEEKLY,
+        MONTHLY,
+        YEARLY
+    };
+
+    struct Metric {
+        0 require string scopeId;
+        1 require string name;
+        2 optional map<string, string> tags;
+    };
+
+    struct MetricSeries {
+        0 require Metric metric;
+        1 require vector<map<string, double>> values;
+    };
+
+    struct MetricCriteria {
+        0 require vector<Metric> metrics;
+        1 require string startDate;
+        2 optional string endDate;
+    };
+
+    struct MetricTagCriteria {
+        0 require string scopeId;
+        1 require string name;
+        2 require map<string, string> tagPatterns;
+        3 require string startDate;
+        4 optional string endDate;
+        5 optional bool matchAll;
+    };
+
+    struct MetricAggCriteria {
+        0 require string scopePattern;
+        1 require string name;
+        2 optional map<string, string> tags;
+        3 require string startDate;
+        4 optional string endDate;
+        5 optional TimeAggregation timeAggregation;
+    };
+
+    interface Metric
+    {
+        void save(vector<MetricSeries> seriesList);
+
+        void incr(vector<MetricSeries> seriesList);
+
+        vector<MetricSeries> query(MetricCriteria criteria);
+
+        void delete(MetricCriteria criteria);
+
+        vector<MetricSeries> queryByTag(MetricTagCriteria criteria);
+
+        MetricSeries aggregateQuery(MetricAggCriteria criteria);
+    };
+};

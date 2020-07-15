@@ -1,0 +1,23 @@
+metric:
+  columns:
+    id: 'bigint notnull autoincrement'
+    create_time: datetime
+    update_time: datetime
+    scope_id: 'string(64) notnull'
+    name: 'string(32) notnull'
+    tags: 'string(128) notnull'
+  indexes:
+    PRIMARY: 'PRIMARY KEY(id)'
+    metric_scope: 'UNIQUE KEY(scope_id,name,tags)'
+
+metric_value:
+  columns:
+    id: 'bigint notnull autoincrement'
+    create_time: datetime
+    update_time: datetime
+    metric_id: 'bigint notnull'
+    biz_date: 'date notnull'
+    value: float
+  indexes:
+    PRIMARY: 'PRIMARY KEY(id)'
+    date_metric: 'UNIQUE KEY(biz_date,metric_id)'
