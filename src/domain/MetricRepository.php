@@ -16,7 +16,7 @@ use kuiper\helper\Arrays;
  *
  * @method Metric[] findAllBy($criteria = null) : array
  */
-class MetricRepository extends AbstractCrudRepository
+class MetricRepository extends AbstractCrudRepository implements MetricRepositoryInterface
 {
     public function findAllByMetricId(array $metricIds): array
     {

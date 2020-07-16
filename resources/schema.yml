@@ -17,7 +17,8 @@ metric_value:
     update_time: datetime
     metric_id: 'bigint notnull'
     biz_date: 'date notnull'
-    value: float
+    sharding: 'tinyint notnull'
+    value: 'float notnull'
   indexes:
     PRIMARY: 'PRIMARY KEY(id)'
     date_metric: 'UNIQUE KEY(biz_date,metric_id)'

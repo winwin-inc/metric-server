@@ -8,6 +8,8 @@ use kuiper\db\annotation\CreationTimestamp;
 use kuiper\db\annotation\GeneratedValue;
 use kuiper\db\annotation\Id;
 use kuiper\db\annotation\NaturalId;
+use kuiper\db\annotation\ShardKey;
+use kuiper\db\annotation\Transient;
 use kuiper\db\annotation\UpdateTimestamp;
 
 class MetricValue
@@ -47,9 +49,22 @@ class MetricValue
     private $bizDate;
 
     /**
+     * @var int
+     * @ShardKey()
+     */
+    private $sharding;
+
+    /**
      * @var float
      */
     private $value;
+
+    /**
+     * @Transient()
+     *
+     * @var Metric
+     */
+    private $metric;
 
     /**
      * @return int
@@ -151,6 +166,21 @@ class MetricValue
         return $this;
     }
 
+    public function getSharding(): int
+    {
+        return $this->sharding;
+    }
+
+    /**
+     * @return static
+     */
+    public function setSharding(int $sharding): self
+    {
+        $this->sharding = $sharding;
+
+        return $this;
+    }
+
     /**
      * @return float
      */
@@ -171,8 +201,29 @@ class MetricValue
         return $this;
     }
 
+    public function getMetric(): Metric
+    {
+        return $this->metric;
+    }
+
+    public function setMetric(Metric $metric): void
+    {
+        $this->metric = $metric;
+        $this->metricId = $metric->getId();
+    }
+
     public function getDateString(): string
     {
         return $this->bizDate->format('Y-m-d');
+    }
+
+    public static function create(Metric $metric, \DateTime $bizDate, float $value): self
+    {
+        $metricValue = new self();
+        $metricValue->setMetric($metric);
+        $metricValue->setBizDate($bizDate);
+        $metricValue->setValue($value);
+
+        return $metricValue;
     }
 }

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace winwin\metric\domain;
 
 use DateTime;
-use kuiper\db\AbstractCrudRepository;
+use DI\Annotation\Inject;
 use kuiper\db\annotation\Entity;
 use kuiper\db\Criteria;
+use kuiper\db\sharding\AbstractShardingCrudRepository;
+use kuiper\db\sharding\rule\RuleInterface;
 use kuiper\di\annotation\Repository;
 use kuiper\helper\Arrays;
 
@@ -17,17 +19,35 @@ use kuiper\helper\Arrays;
  *
  * @method MetricValue[] findAllBy($criteria = null) : array
  */
-class MetricValueRepository extends AbstractCrudRepository
+class MetricValueRepository extends AbstractShardingCrudRepository implements MetricValueRepositoryInterface
 {
+    /**
+     * @Inject("MetricShardingRule")
+     *
+     * @var RuleInterface
+     */
+    private $metricShardingRule;
+
     public function findAllBetween(array $metrics, DateTime $startDate, ?DateTime $endDate = null): array
     {
-        return $this->findAllBy($this->createCriteria($metrics, $startDate, $endDate)
-            ->select('id', 'bizDate', 'metricId', 'value'));
+        $values = [];
+        foreach (Arrays::groupBy($metrics, function ($metric) { return $this->getMetricSharding($metric); })
+                 as $partition => $partMetrics) {
+            $values[] = $this->findAllBy($this->createCriteria($partMetrics, $startDate, $endDate)
+                ->where('sharding', $partition)
+                ->select('id', 'bizDate', 'metricId', 'value'));
+        }
+
+        return array_merge(...$values);
     }
 
     public function deleteAllBetween(array $metrics, DateTime $startDate, ?DateTime $endDate = null): void
     {
-        $this->deleteAllBy($this->createCriteria($metrics, $startDate, $endDate));
+        foreach (Arrays::groupBy($metrics, function ($metric) { return $this->getMetricSharding($metric); })
+                 as $partition => $partMetrics) {
+            $this->deleteAllBy($this->createCriteria($partMetrics, $startDate, $endDate)
+                ->where('sharding', $partition));
+        }
     }
 
     /**
@@ -35,6 +55,9 @@ class MetricValueRepository extends AbstractCrudRepository
      */
     public function saveAll(array $values): void
     {
+        foreach ($values as $value) {
+            $value->setSharding($this->getMetricSharding($value->getMetric()));
+        }
         $exists = $this->findExistValues($values);
         $this->batchInsert(array_filter($values, static function (MetricValue $value) {
             return is_null($value->getId());
@@ -49,26 +72,32 @@ class MetricValueRepository extends AbstractCrudRepository
      */
     public function increaseAll(array $values): void
     {
+        foreach ($values as $value) {
+            $value->setSharding($this->getMetricSharding($value->getMetric()));
+        }
         $exists = $this->findExistValues($values);
         $this->batchInsert(array_filter($values, static function (MetricValue $value) {
             return is_null($value->getId());
         }));
         $stmt = $this->queryBuilder->update($this->getTableName());
 
-        $i = 1;
-        $caseExp = ['case `id`'];
-        $bindValues = [];
-        foreach ($exists as $exist) {
-            $v1 = 'i'.($i++);
-            $v2 = 'i'.($i++);
-            $caseExp[] = sprintf('when :%s then value+:%s', $v1, $v2);
-            $bindValues[$v1] = $exist->getId();
-            $bindValues[$v2] = $exist->getValue();
+        foreach (Arrays::groupBy($values, 'sharding') as $sharding => $partValues) {
+            $i = 1;
+            $caseExp = ['case `id`'];
+            $bindValues = [];
+            foreach ($exists as $exist) {
+                $v1 = 'i'.($i++);
+                $v2 = 'i'.($i++);
+                $caseExp[] = sprintf('when :%s then value+:%s', $v1, $v2);
+                $bindValues[$v1] = $exist->getId();
+                $bindValues[$v2] = $exist->getValue();
+            }
+            $stmt->set('value', implode(' ', $caseExp).' end');
+            $stmt->bindValues($bindValues);
+            $stmt->in('id', Arrays::pull($exists, 'id'));
+            $stmt->shardBy(['sharding' => $sharding]);
+            $this->doExecute($stmt);
         }
-        $stmt->set('value', implode(' ', $caseExp).' end');
-        $stmt->bindValues($bindValues);
-        $stmt->in('id', Arrays::pull($exists, 'id'));
-        $this->doExecute($stmt);
     }
 
     /**
@@ -78,31 +107,34 @@ class MetricValueRepository extends AbstractCrudRepository
      */
     private function findExistValues(array $values): array
     {
-        $naturalIds = [];
-        foreach ($values as $value) {
-            $naturalIds[] = [
-                'bizDate' => $value->getBizDate()->format('Y-m-d'),
-                'metricId' => $value->getMetricId(),
-            ];
-        }
-        /** @var MetricValue[][] $exists */
-        $exists = [];
-        foreach ($this->findAllBy(Criteria::create()
-            ->matches($naturalIds, ['bizDate', 'metricId'])) as $metricValue) {
-            $exists[$metricValue->getDateString()][$metricValue->getMetricId()] = $metricValue;
-        }
-        foreach ($values as $value) {
-            if (isset($exists[$value->getDateString()][$value->getMetricId()])) {
-                $exist = $exists[$value->getDateString()][$value->getMetricId()];
-                $exist->setValue($value->getValue());
-                $value->setId($exist->getId());
+        $all = [];
+        foreach (Arrays::groupBy($values, 'sharding') as $sharding => $partValues) {
+            $naturalIds = [];
+            foreach ($values as $value) {
+                $naturalIds[] = [
+                    'bizDate' => $value->getBizDate()->format('Y-m-d'),
+                    'metricId' => $value->getMetricId(),
+                ];
+            }
+            /** @var MetricValue[][] $exists */
+            $exists = [];
+            foreach ($this->findAllBy(Criteria::create(['sharding' => $sharding])
+                ->matches($naturalIds, ['bizDate', 'metricId'])) as $metricValue) {
+                $exists[$metricValue->getDateString()][$metricValue->getMetricId()] = $metricValue;
+            }
+            foreach ($values as $value) {
+                if (isset($exists[$value->getDateString()][$value->getMetricId()])) {
+                    $exist = $exists[$value->getDateString()][$value->getMetricId()];
+                    $exist->setValue($value->getValue());
+                    $value->setId($exist->getId());
+                }
+            }
+            if (!empty($exists)) {
+                $all[] = Arrays::flatten($exists);
             }
         }
-        if (empty($exists)) {
-            return [];
-        }
 
-        return Arrays::flatten($exists);
+        return Arrays::flatten($all);
     }
 
     private function createCriteria(array $metrics, DateTime $startDate, ?DateTime $endDate): Criteria
@@ -118,5 +150,19 @@ class MetricValueRepository extends AbstractCrudRepository
         }
 
         return $criteria;
+    }
+
+    private function getMetricSharding(Metric $metric): int
+    {
+        return $this->metricShardingRule->getPartition([
+            'scope_id' => $metric->getScopeId(),
+            'name' => $metric->getName(),
+            'tags' => $metric->getTags(),
+        ]);
+    }
+
+    public function setMetricShardingRule(RuleInterface $metricShardingRule): void
+    {
+        $this->metricShardingRule = $metricShardingRule;
     }
 }

@@ -22,7 +22,7 @@ class SaveTest extends TestCase
             ]),
         ]);
         $this->assertTableRowCount('metric', 1);
-        $this->assertTableRowCount('metric_value', 2);
+        $this->assertTableRowCount('metric_value_01', 2);
     }
 
     /**

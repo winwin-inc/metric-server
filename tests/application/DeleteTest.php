@@ -23,7 +23,7 @@ class DeleteTest extends TestCase
         $criteria->startDate = '2020-06-01';
         $criteria->endDate = '2020-06-02';
         $metricServant->delete($criteria);
-        $this->assertTableRowCount('metric_value', 0);
+        $this->assertTableRowCount('metric_value_01', 0);
     }
 
     /**
@@ -42,13 +42,14 @@ class DeleteTest extends TestCase
                     'tags' => '',
                 ],
             ],
-            'metric_value' => [
+            'metric_value_01' => [
                 [
                     'id' => '1',
                     'create_time' => '2020-07-15 15:05:05',
                     'update_time' => '2020-07-15 15:05:05',
                     'metric_id' => '1',
                     'biz_date' => '2020-06-01',
+                    'sharding' => 1,
                     'value' => '1.3',
                 ],
                 [
@@ -57,6 +58,7 @@ class DeleteTest extends TestCase
                     'update_time' => '2020-07-15 15:05:05',
                     'metric_id' => '1',
                     'biz_date' => '2020-06-02',
+                    'sharding' => 1,
                     'value' => '3',
                 ],
             ],

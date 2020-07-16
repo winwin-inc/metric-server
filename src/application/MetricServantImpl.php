@@ -10,9 +10,9 @@ use kuiper\di\annotation\Service;
 use kuiper\helper\Arrays;
 use winwin\metric\domain\Metric;
 use winwin\metric\domain\MetricId;
-use winwin\metric\domain\MetricRepository;
+use winwin\metric\domain\MetricRepositoryInterface;
 use winwin\metric\domain\MetricValue;
-use winwin\metric\domain\MetricValueRepository;
+use winwin\metric\domain\MetricValueRepositoryInterface;
 use winwin\metric\servant\MetricSeries;
 use winwin\metric\servant\MetricServant;
 use winwin\metric\servant\TimeAggregation;
@@ -23,12 +23,12 @@ use winwin\metric\servant\TimeAggregation;
 class MetricServantImpl implements MetricServant
 {
     /**
-     * @var MetricRepository
+     * @var MetricRepositoryInterface
      */
     private $metricRepository;
 
     /**
-     * @var MetricValueRepository
+     * @var MetricValueRepositoryInterface
      */
     private $metricValueRepository;
 
@@ -37,12 +37,9 @@ class MetricServantImpl implements MetricServant
      */
     private $tagSerializer;
 
-    /**
-     * MetricServantImpl constructor.
-     */
     public function __construct(
-        MetricRepository $metricRepository,
-        MetricValueRepository $metricValueRepository,
+        MetricRepositoryInterface $metricRepository,
+        MetricValueRepositoryInterface $metricValueRepository,
         TagSerializer $tagSerializer)
     {
         $this->metricRepository = $metricRepository;
@@ -55,7 +52,7 @@ class MetricServantImpl implements MetricServant
      *
      * @param MetricSeries[] $seriesList
      */
-    public function save($seriesList)
+    public function save($seriesList): void
     {
         $this->metricValueRepository->saveAll($this->createMetricValues($seriesList));
     }
@@ -63,7 +60,7 @@ class MetricServantImpl implements MetricServant
     /**
      * {@inheritdoc}
      */
-    public function incr($seriesList)
+    public function incr($seriesList): void
     {
         $this->metricValueRepository->increaseAll($this->createMetricValues($seriesList));
     }
@@ -71,7 +68,7 @@ class MetricServantImpl implements MetricServant
     /**
      * {@inheritdoc}
      */
-    public function query($criteria)
+    public function query($criteria): array
     {
         $metrics = $this->metricRepository->findAllByMetricId($this->toMetricIdList($criteria->metrics));
 
@@ -81,7 +78,7 @@ class MetricServantImpl implements MetricServant
     /**
      * {@inheritdoc}
      */
-    public function delete($criteria)
+    public function delete($criteria): void
     {
         $metrics = $this->metricRepository->findAllByMetricId($this->toMetricIdList($criteria->metrics));
         $this->metricValueRepository->deleteAllBetween(
@@ -94,7 +91,7 @@ class MetricServantImpl implements MetricServant
     /**
      * {@inheritdoc}
      */
-    public function queryByTag($criteria)
+    public function queryByTag($criteria): array
     {
         $metricCriteria = Criteria::create([
             'metricId.scopeId' => $criteria->scopeId,
@@ -114,7 +111,7 @@ class MetricServantImpl implements MetricServant
     /**
      * {@inheritdoc}
      */
-    public function aggregateQuery($criteria)
+    public function aggregateQuery($criteria): MetricSeries
     {
         $metricCriteria = Criteria::create([
             'metricId.name' => $criteria->name,
@@ -127,6 +124,7 @@ class MetricServantImpl implements MetricServant
         $metricDto->scopeId = $criteria->scopePattern;
         $metricDto->tags = $criteria->tags;
         $series->metric = $metricDto;
+        $series->values = [];
 
         $metrics = $this->metricRepository->findAllBy($metricCriteria);
         $values = $this->metricValueRepository->findAllBetween(
@@ -147,20 +145,23 @@ class MetricServantImpl implements MetricServant
         return $series;
     }
 
+    /**
+     * @param Metric[] $metrics
+     *
+     * @return MetricSeries[]
+     */
     private function queryMetricValues(array $metrics, string $startDate, ?string $endDate): array
     {
         $values = $this->metricValueRepository->findAllBetween(
             $metrics, Carbon::parse($startDate), $endDate ? Carbon::parse($endDate) : null);
+        $metricValuesById = Arrays::groupBy($values, 'metricId');
         $seriesList = [];
-        /** @var Metric[] $metrics */
-        $metrics = Arrays::assoc($metrics, 'id');
-        foreach (Arrays::groupBy($values, 'metricId') as $metricIntId => $metricValues) {
+        foreach ($metrics as $metric) {
             $series = new MetricSeries();
-            $series->metric = $this->toMetricDto($metrics[$metricIntId]);
+            $series->metric = $this->toMetricDto($metric);
+            $metricValues = $metricValuesById[$metric->getId()] ?? [];
             $series->values = array_combine(
-                array_map(static function (\DateTime $date) {
-                    return $date->format('Y-m-d');
-                }, Arrays::pull($metricValues, 'bizDate')),
+                Arrays::pull($metricValues, 'dateString'),
                 Arrays::pull($metricValues, 'value')
             );
             $seriesList[] = $series;
@@ -183,12 +184,7 @@ class MetricServantImpl implements MetricServant
         foreach ($seriesList as $series) {
             $metric = $metrics[$this->toMetricId($series->metric)->getNaturalId()];
             foreach ($series->values as $date => $value) {
-                //  $values[] = ['bizDate' => $date, 'metricId' => $metric->getId()];
-                $metricValue = new MetricValue();
-                $metricValue->setMetricId($metric->getId());
-                $metricValue->setBizDate(Carbon::parse($date));
-                $metricValue->setValue($value);
-                $values[] = $metricValue;
+                $values[] = MetricValue::create($metric, Carbon::parse($date), $value);
             }
         }
 
