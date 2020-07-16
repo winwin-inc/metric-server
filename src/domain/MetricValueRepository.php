@@ -21,7 +21,8 @@ class MetricValueRepository extends AbstractCrudRepository
 {
     public function findAllBetween(array $metrics, DateTime $startDate, ?DateTime $endDate = null): array
     {
-        return $this->findAllBy($this->createCriteria($metrics, $startDate, $endDate));
+        return $this->findAllBy($this->createCriteria($metrics, $startDate, $endDate)
+            ->select('id', 'bizDate', 'metricId', 'value'));
     }
 
     public function deleteAllBetween(array $metrics, DateTime $startDate, ?DateTime $endDate = null): void
@@ -101,7 +102,7 @@ class MetricValueRepository extends AbstractCrudRepository
             return [];
         }
 
-        return array_merge(...array_values(array_map('array_values', $exists)));
+        return Arrays::flatten($exists);
     }
 
     private function createCriteria(array $metrics, DateTime $startDate, ?DateTime $endDate): Criteria

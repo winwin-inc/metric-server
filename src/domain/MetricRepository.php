@@ -20,7 +20,9 @@ class MetricRepository extends AbstractCrudRepository
 {
     public function findAllByMetricId(array $metricIds): array
     {
-        return $this->findAllBy(Criteria::create()->in('metricId', $metricIds));
+        return $this->findAllBy(Criteria::create()
+            ->in('metricId', $metricIds)
+            ->select('id', 'metricId.scopeId', 'metricId.name', 'metricId.tags'));
     }
 
     /**
